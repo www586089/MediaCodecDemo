@@ -792,4 +792,16 @@ public class MediaParseUtil {
         mediaMuxer.release();
     }
 
+
+    /**
+     * 提取中间
+     * @param videoPath
+     * @param outPath
+     * @throws IOException
+     */
+    public static void videoCrop(String videoPath, String outPath) throws IOException {
+        VideoCrop videoCrop = new VideoCrop();
+        videoCrop.startCrop(videoPath, outPath);
+    }
+
 }

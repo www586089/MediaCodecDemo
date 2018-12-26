@@ -115,6 +115,25 @@ public class MainActivity extends AppCompatActivity {
                     e.printStackTrace();
                 }
                 break;
+
+
+            case R.id.videoCrop:
+                try {
+                    MediaParseUtil.videoCrop("/sdcard/MediaCodecDemo/original.mp4", "/sdcard/MediaCodecDemo/crop.mp4");
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+                break;
+
+            case R.id.videoRotate:
+                try {
+                    long startTime = 4 * 1000 * 1000;
+                    long endTime = 9 * 1000 * 1000;
+                    MediaParseUtil.videoClip("/sdcard/MediaCodecDemo/clip.mp4", "/sdcard/MediaCodecDemo/clipResult.mp4", startTime, endTime);
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+                break;
         }
     }
 }
