@@ -88,8 +88,11 @@ public class VideoCrop {
             }
             readSampleSize = videoExtractor.readSampleData(bufferInput, bufferInput.position());
             if (readSampleSize < 0) {
+                mEncoder.queueInputBuffer(index, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
                 videoExtractor.unselectTrack(videoTrackIndex);
                 break;
+            } else {
+                mEncoder.queueInputBuffer(index, bufferInput.position(), bufferInfo.size, videoExtractor.getSampleTime(), videoExtractor.getSampleFlags());
             }
 
 
@@ -102,11 +105,14 @@ public class VideoCrop {
                     videoTrackIndexOutput = mMuxer.addTrack(mEncoder.getOutputFormat());
                     mMuxer.start();
                 }
+            } else if (outIndex < 0) {
+                continue;//Unexpected state
             } else {
                 ByteBuffer buffer = mEncoder.getOutputBuffer(outIndex);
                 if (null != buffer) {
                     mMuxer.writeSampleData(videoTrackIndexOutput, buffer, bufferInfo);
                 }
+                mEncoder.releaseOutputBuffer(index, false);
             }
 
             videoExtractor.advance();
