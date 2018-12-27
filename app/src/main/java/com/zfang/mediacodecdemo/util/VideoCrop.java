@@ -3,6 +3,7 @@ package com.zfang.mediacodecdemo.util;
 import android.hardware.Camera;
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
+import android.media.MediaCodecList;
 import android.media.MediaExtractor;
 import android.media.MediaFormat;
 import android.media.MediaMuxer;
@@ -18,6 +19,8 @@ import android.view.Surface;
 import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+
+import static org.junit.Assert.fail;
 
 public class VideoCrop {
 
@@ -41,7 +44,7 @@ public class VideoCrop {
 
         int videoMaxSampleSize = -1;
         int videoTrackIndex = -1;
-        int bitRate = 6_000_000;
+        int bitRate = 1_500_000;
         int frameRate = -1;
         int iFrameInterval = 5;
         int colorFormat = -1;
@@ -76,46 +79,66 @@ public class VideoCrop {
         MediaCodec.BufferInfo bufferInfo = new MediaCodec.BufferInfo();
         int readSampleSize = -1;
         int videoTrackIndexOutput = -1;
+        boolean inputDone = false;
+        boolean outputDone = false;
         while (true) {
-            int index = mEncoder.dequeueInputBuffer(0);
-            if (index < 0) {
-                continue;
-            }
-
-            ByteBuffer bufferInput = mEncoder.getInputBuffer(index);
-            if (null == bufferInput) {
-                continue;
-            }
-            readSampleSize = videoExtractor.readSampleData(bufferInput, bufferInput.position());
-            if (readSampleSize < 0) {
-                mEncoder.queueInputBuffer(index, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
-                videoExtractor.unselectTrack(videoTrackIndex);
-                break;
-            } else {
-                mEncoder.queueInputBuffer(index, bufferInput.position(), bufferInfo.size, videoExtractor.getSampleTime(), videoExtractor.getSampleFlags());
-            }
-
-
-            int outIndex = mEncoder.dequeueOutputBuffer(bufferInfo, 0);
-            if (MediaCodec.INFO_TRY_AGAIN_LATER == outIndex) {
-                continue;
-            } else if (MediaCodec.INFO_OUTPUT_FORMAT_CHANGED == outIndex) {
-                if (!mMuxerStarted) {
-                    mMuxerStarted = true;
-                    videoTrackIndexOutput = mMuxer.addTrack(mEncoder.getOutputFormat());
-                    mMuxer.start();
+            if (!inputDone) {
+                int inputIndex = mEncoder.dequeueInputBuffer(0);
+                if (inputIndex < 0) {
+                    continue;
                 }
-            } else if (outIndex < 0) {
-                continue;//Unexpected state
-            } else {
-                ByteBuffer buffer = mEncoder.getOutputBuffer(outIndex);
-                if (null != buffer) {
-                    mMuxer.writeSampleData(videoTrackIndexOutput, buffer, bufferInfo);
+
+                ByteBuffer bufferInput = mEncoder.getInputBuffer(inputIndex);
+                if (null == bufferInput) {
+                    continue;
                 }
-                mEncoder.releaseOutputBuffer(index, false);
+                readSampleSize = videoExtractor.readSampleData(bufferInput, 0);
+                if (readSampleSize < 0) {
+                    mEncoder.queueInputBuffer(inputIndex, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
+                    videoExtractor.unselectTrack(videoTrackIndex);
+                    inputDone = true;
+                } else {
+                    long pts = videoExtractor.getSampleTime();
+                    int flags = videoExtractor.getSampleFlags();
+                    mEncoder.queueInputBuffer(inputIndex, 0, readSampleSize, pts, flags);
+                }
+
+                videoExtractor.advance();
             }
 
-            videoExtractor.advance();
+
+            if (!outputDone) {
+                int outIndex = mEncoder.dequeueOutputBuffer(bufferInfo, 0);
+                if (MediaCodec.INFO_TRY_AGAIN_LATER == outIndex) {
+                    continue;
+                } else if (MediaCodec.INFO_OUTPUT_FORMAT_CHANGED == outIndex) {
+                    if (!mMuxerStarted) {
+                        mMuxerStarted = true;
+                        videoTrackIndexOutput = mMuxer.addTrack(mEncoder.getOutputFormat());
+                        mMuxer.start();
+                    }
+                } else if (outIndex < 0) {
+                    continue;//Unexpected state
+                } else {
+                    ByteBuffer buffer = mEncoder.getOutputBuffer(outIndex);
+                    if (null != buffer) {
+                        buffer.position(bufferInfo.offset);
+                        buffer.limit(bufferInfo.offset + bufferInfo.size);
+                        mMuxer.writeSampleData(videoTrackIndexOutput, buffer, bufferInfo);
+                    }
+                    mEncoder.releaseOutputBuffer(outIndex, false);
+
+                    if ((bufferInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
+                        outputDone = true;
+//                        if (!endOfStream) {
+//                            Log.w(TAG, "reached end of stream unexpectedly");
+//                        } else {
+//                            if (VERBOSE) Log.d(TAG, "end of stream reached");
+//                        }
+                        break;      // out of while
+                    }
+                }
+            }
         }
     }
 
@@ -131,7 +154,7 @@ public class VideoCrop {
 
         // Set some properties.  Failing to specify some of these can cause the MediaCodec
         // configure() call to throw an unhelpful exception.
-        format.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
+        format.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible);
         format.setInteger(MediaFormat.KEY_BIT_RATE, bitRate);
         format.setInteger(MediaFormat.KEY_FRAME_RATE, frameRate);
         format.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, iFrameInterval);
@@ -141,12 +164,12 @@ public class VideoCrop {
 //        videoFormat.setInteger("crop-right", 720);
 //        videoFormat.setInteger("crop-bottom", 1440);
 
-        videoFormat.setInteger(MediaFormat.KEY_WIDTH, width);
-        videoFormat.setInteger(MediaFormat.KEY_HEIGHT, height);
+//        videoFormat.setInteger(MediaFormat.KEY_WIDTH, width);
+//        videoFormat.setInteger(MediaFormat.KEY_HEIGHT, height);
         videoFormat.setInteger(MediaFormat.KEY_BIT_RATE, bitRate);
-        videoFormat.setInteger(MediaFormat.KEY_FRAME_RATE, frameRate);
+//        videoFormat.setInteger(MediaFormat.KEY_FRAME_RATE, frameRate);
         videoFormat.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, iFrameInterval);
-        videoFormat.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible);
+        videoFormat.setInteger(MediaFormat.KEY_COLOR_FORMAT, findNonSurfaceColorFormat(selectCodec(mimeType), mimeType));
         if (VERBOSE) Log.d(TAG, "format: " + format);
 
         // Create a MediaCodec encoder, and configure it with our format.  Get a Surface
@@ -184,6 +207,42 @@ public class VideoCrop {
         mMuxerStarted = false;
     }
 
+    /**
+     * Returns the first codec capable of encoding the specified MIME type, or null if no
+     * match was found.
+     */
+    private static MediaCodecInfo selectCodec(String mimeType) {
+        // FIXME: select codecs based on the complete use-case, not just the mime
+        MediaCodecList mcl = new MediaCodecList(MediaCodecList.REGULAR_CODECS);
+        for (MediaCodecInfo info : mcl.getCodecInfos()) {
+            if (!info.isEncoder()) {
+                continue;
+            }
+
+            String[] types = info.getSupportedTypes();
+            for (int j = 0; j < types.length; j++) {
+                if (types[j].equalsIgnoreCase(mimeType)) {
+                    return info;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Returns a color format that is supported by the codec and isn't COLOR_FormatSurface.  Throws
+     * an exception if none found.
+     */
+    private static int findNonSurfaceColorFormat(MediaCodecInfo codecInfo, String mimeType) {
+        MediaCodecInfo.CodecCapabilities capabilities = codecInfo.getCapabilitiesForType(mimeType);
+        for (int i = 0; i < capabilities.colorFormats.length; i++) {
+            int colorFormat = capabilities.colorFormats[i];
+            if (colorFormat != MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface) {
+                return colorFormat;
+            }
+        }
+        return 0;   // not reached
+    }
 
     private void prepareDecoder(String outPath, String mimeType, int width, int height, int bitRate, int frameRate, int iFrameInterval) throws IOException {
         mBufferInfo = new MediaCodec.BufferInfo();
